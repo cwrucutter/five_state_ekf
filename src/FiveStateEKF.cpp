@@ -44,6 +44,25 @@ const std::vector<double> FiveStateEKF::f(const std::vector<double>& uk) {
 	return result;
 }
 
+const std::vector<double> FiveStateEKF::f2(const std::vector<double>& uk) {
+	std::vector<double> result = this->state_;
+	result[0] = this->state_[0] + this->state_[3] * this->delta_T*std::cos(this->state_[2] + this->state_[4] * this->delta_T / 2);
+	result[1] = this->state_[1] + this->state_[3] * this->delta_T*std::sin(this->state_[2] + this->state_[4] * this->delta_T / 2);
+	result[2] = this->state_[2] + this->state_[4] * this->delta_T;
+}
+
+const Matrix<double> FiveStateEKF::F2(void) {
+	Matrix<double> result = this->error_.identity(5);
+	double val = this->state_[2] + this->state_[4] * this->delta_T / 2;
+	result(0, 2) = -1 * this->state_[3] * this->delta_T*std::sin(val);
+	result(0, 3) = this->delta_T*std::cos(val);
+	result(0, 4) = -1 * this->state_[3] * std::pow(this->delta_T, 2.0)*std::sin(val) / 2;
+	result(1, 2) = this->state_[3] * this->delta_T*std::cos(val);
+	result(1, 3) = this->delta_T*std::sin(val);
+	result(1, 4) = this->state_[3] * std::pow(this->delta_T, 2.0)*std::cos(val) / 2;
+	result(2, 4) = this->delta_T;
+}
+
 /* Since computing the kalman gain is a linear transformation, a nonlinear system can be linearized particularly by the jacobian matrix "J"
    of the system model "f" evaluated at the current state (in this case the predicted state)
 
@@ -121,7 +140,7 @@ const std::vector<double> FiveStateEKF::h_gps(const std::vector<double>& lever_a
 
 const Matrix<double> FiveStateEKF::H_gps(const std::vector<double>& lever_arm_offset) {
 	Matrix<double> result = this->error_.diagonalMatrix(2, 5, 1.0);
-	result(0, 2) = -lever_arm_offset[0] * std::sin(this->state_[2]) - lever_arm_offset[1] * std::cos(this->state_[2]);
+	result(0, 2) = -1 * lever_arm_offset[0] * std::sin(this->state_[2]) - lever_arm_offset[1] * std::cos(this->state_[2]);
 	result(1, 2) = lever_arm_offset[0] * std::cos(this->state_[2]) - lever_arm_offset[1] * std::sin(this->state_[2]);
 	return result;
 }
@@ -174,8 +193,8 @@ const Matrix<double> FiveStateEKF::H_encoder(void) {
 }
 
 const void FiveStateEKF::predict(const std::vector<double>& uk) {
-	this->state_ = this->f(uk);
-	this->F_ = this->F();
+	this->state_ = this->f2(uk);
+	this->F_ = this->F2();
 	Matrix<double> q( 5, 5, 0.0 );
 	q(0, 0) = q(1, 1) = 0.01;
 	q(2, 2) = 0.001;
@@ -184,7 +203,7 @@ const void FiveStateEKF::predict(const std::vector<double>& uk) {
 }
 
 const void FiveStateEKF::predict(const std::vector<double>& uk, std::ofstream& file) {
-	this->state_ = this->f(uk);
+	this->state_ = this->f2(uk);
 	file << "[";
 	for (unsigned int i = 0; i < this->state_.size(); i++) {
 		file << this->state_[i];
@@ -195,7 +214,7 @@ const void FiveStateEKF::predict(const std::vector<double>& uk, std::ofstream& f
 	q(0, 0) = q(1, 1) = 0.01;
 	q(2, 2) = 0.001;
 	q(3, 3) = q(4, 4) = 0.3;
-	this->F_ = this->F();
+	this->F_ = this->F2();
 	file << "[JACOBIAN]" << std::endl;
 	this->F_.printToFile(file);
 	file << "[Q MATRIX]" << std::endl;
@@ -221,7 +240,7 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::string senso
 	if (std::strcmp(sensorID.c_str(), "gps") == 0) { //if we are using gps to update measurement
 		std::vector<double> lever_arm_offset;
 		lever_arm_offset.resize(2, 0.0);
-		lever_arm_offset[0] = 0.25;
+		lever_arm_offset[0] = -0.25;
 		//get H and gps_est
 		std::vector<double> gps_est = this->h_gps(lever_arm_offset); //2 x 1
 		Matrix<double> H = this->H_gps(lever_arm_offset); //2 x 5
@@ -295,7 +314,7 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::ofstream& fi
 	if (std::strcmp(sensorID.c_str(), "gps") == 0) { //if we are using gps to update measurement
 		std::vector<double> lever_arm_offset;
 		lever_arm_offset.resize(2, 0.0);
-		lever_arm_offset[0] = 0.25;
+		lever_arm_offset[0] = -0.25;
 		//get H and gps_est
 		std::vector<double> gps_est = this->h_gps(lever_arm_offset); //2 x 1
 		file << "[gps_est] -> [" << gps_est[0] << ", " << gps_est[1] << "]" << std::endl;
@@ -419,7 +438,7 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::string senso
 	if (std::strcmp(sensorID.c_str(), "gps") == 0) { //if we are using gps to update measurement
 		std::vector<double> lever_arm_offset;
 		lever_arm_offset.resize(2, 0.0);
-		lever_arm_offset[0] = 0.25;
+		lever_arm_offset[0] = -0.25;
 		//get H and gps_est
 		std::vector<double> gps_est = this->h_gps(lever_arm_offset); //2 x 1
 		Matrix<double> H = this->H_gps(lever_arm_offset); //2 x 5
