@@ -1,0 +1,71 @@
+#pragma once
+#ifndef FiveStateEKF_H
+#define FiveStateEKF_H //_declspec(dllexport)
+//#else
+//#define FiveStateEKF_H //_declspec(dllimport)
+#endif
+
+#include <vector>
+#include <iostream>
+#include <fstream>
+#include "Matrix.h"
+
+class FiveStateEKF {
+private:
+	const std::vector<double> f(const std::vector<double>&);
+	const Matrix<double> F(void);
+	const std::vector<double> h_gps(const std::vector<double>&);
+	const Matrix<double> H_gps(const std::vector<double>&);
+	const std::vector<double> h_imu(const std::vector<double>&);
+	const Matrix<double> H_imu(void);
+	const std::vector<double> h_vis_odom(const std::vector<double>&);
+	const Matrix<double> H_vis_odom(void);
+	const std::vector<double> h_LIDAR(const std::vector<double>&);
+	const Matrix<double> H_LIDAR(void);
+	const std::vector<double> h_encoder(const std::vector<double>&);
+	const Matrix<double> H_encoder(void);
+
+public:
+	std::vector<double> state_; //the state of the filter....will only point to [range, theta]
+	Matrix<double> F_, error_;
+	double delta_T;
+
+	FiveStateEKF() {
+		this->state_ = std::vector<double>(5, 0.0);
+		this->error_ = Matrix < double > (5, 5, 1.0);
+		//this->error_(0, 1) = this->error_(1, 0) = 0.32;
+		this->delta_T = 0.1;
+	}
+
+	FiveStateEKF(std::vector<double> initState) {
+		this->state_.resize(initState.size());
+		for (unsigned int i = 0; i < initState.size(); i++) { this->state_[i] = initState[i]; }
+		this->error_ = Matrix < double > (5, 5, 1.0);
+		//this->error_(0, 1) = this->error_(1, 0) = 0.32;
+		this->delta_T = 0.1;
+	}
+
+	FiveStateEKF(double deltaT) {
+		this->state_ = std::vector<double>(5, 0.0);
+		this->error_ = Matrix < double > (5, 5, 1.0);
+		//this->error_(0, 1) = this->error_(1, 0) = 0.32;
+		this->delta_T = deltaT;
+	}
+
+	FiveStateEKF(std::vector<double> initState, double deltaT) {
+		this->state_.resize(initState.size());
+		for (unsigned int i = 0; i < initState.size(); i++) { this->state_[i] = initState[i]; }
+		this->error_ = Matrix < double > (5, 5, 1.0);
+		//this->error_(0, 1) = this->error_(1, 0) = 0.32;
+		this->delta_T = deltaT;
+	}
+
+	//~FiveStateEKF() {}
+
+	const void predict(const std::vector<double>& uk);
+	const void predict(const std::vector<double>& uk, std::ofstream& file); //takes pUk (control input) 
+	const void predict(const std::vector<double>& uk, const Matrix<double>& Q);
+	const void update(const std::vector<double>& zk, std::string sensorID);
+	const void update(const std::vector<double>& zk, std::ofstream& file, std::string sensorID);
+	const void update(const std::vector<double>& zk, std::string sensorID, const Matrix<double>& R);
+};
