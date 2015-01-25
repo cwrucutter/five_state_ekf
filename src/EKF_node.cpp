@@ -3,6 +3,7 @@
 #include <sensor_msgs/Imu.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <nav_msgs/Odometry.h>
+#include <five_state_ekf/VisualOdomPair.h>
 #include "FiveStateEKF.h"
 #include "Matrix.h"
 
@@ -36,6 +37,14 @@ void imuCB(const sensor_msgs::Imu& cmd) {
 	ekf.update(zk, "imu");
 	//*/
 //	last_imu = cmd;
+}
+void vizOdomCB(const five_state_ekf::VisualOdomPair& msg) {
+	std::vector<double> zk;
+	zk.push_back(msg.dx1);
+	zk.push_back(msg.dy1);
+	zk.push_back(msg.dx2);
+	zk.push_back(msg.dy2);
+	ekf.update(zk, "visual odometry");
 }
 void controlCB(const geometry_msgs::Twist& cmd) {
 	///*
