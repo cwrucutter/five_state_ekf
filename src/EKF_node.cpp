@@ -44,6 +44,7 @@ void vizOdomCB(const five_state_ekf::VisualOdomPair& msg) {
 	zk.push_back(msg.dy1);
 	zk.push_back(msg.dx2);
 	zk.push_back(msg.dy2);
+	ROS_INFO("updating with visual odometry");
 	ekf.update(zk, "visual odometry");
 }
 void controlCB(const geometry_msgs::Twist& cmd) {
