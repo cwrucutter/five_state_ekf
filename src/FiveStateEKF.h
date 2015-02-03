@@ -20,6 +20,7 @@ private:
 	const Matrix<double> H_gps(const std::vector<double>&);
 	const std::vector<double> h_imu(const std::vector<double>&);
 	const Matrix<double> H_imu(void);
+	const std::vector<double> process_vis_odom(const std::vector<double>&, const std::vector<double>&, double);
 	const std::vector<double> h_vis_odom(const std::vector<double>&);
 	const Matrix<double> H_vis_odom(void);
 	const std::vector<double> h_LIDAR(const std::vector<double>&);
@@ -230,14 +231,37 @@ const Matrix<double> FiveStateEKF::H_imu(void) {
 	return result;
 }
 
-const std::vector<double> FiveStateEKF::h_vis_odom(const std::vector<double>& in) {
+const std::vector<double> FiveStateEKF::process_vis_odom(const std::vector<double>& odom_sensor, const std::vector<double>& off, double theta) {
+	//odom_sensor_1 = [dx1, dy1]'		odom_sensor_2 = [dx2, dy2]'
+	//the measurements are off by some angle theta
+	//will return [v, omega]' in both sensor and robot frame (on a rigid body)
+
+
+	//denote odom_sensor_1 as sensor a
+	double vax = odom_sensor[0] * std::cos(theta) - odom_sensor[1] * std::sin(theta);
+	//double vay = odom_sensor[0] * std::sin(theta) + odom_sensor[1] * std::cos(theta);
+
+	//denote odom_sensor_2 as sensor b
+	double vbx = odom_sensor[2] * std::cos(theta) - odom_sensor[3] * std::sin(theta);
+	//double vby = odom_sensor[2] * std::sin(theta) + odom_sensor[3] * std::cos(theta);
+
 	std::vector<double> result;
-	result.resize(5, 0.0);
+	result.resize(2, 0.0);
+	result[0] = (vax + vbx) / 2.0;
+	//would be this way, but off[0] --> x displacement of visual sensors is EXTREMELY small
+	//result[1] = ((vax - vbx) / (-1 * off[1]) + (vay + vby) / off[0]) / 2.0;
+	result[1] = (vax - vbx) / (-1 * off[1]);
+	
+	return result;
+}
+
+const std::vector<double> FiveStateEKF::h_vis_odom(const std::vector<double>& in) {
+	std::vector<double> result = in;
 	return result;
 }
 
 const Matrix<double> FiveStateEKF::H_vis_odom(void) {
-	Matrix<double> result = this->error_.identity(5);
+	Matrix<double> result = this->error_.diagonalMatrix(2, 5, 1.0);
 	return result;
 }
 
@@ -376,6 +400,37 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::string senso
 		//P-K*H*P --> (5 x 5) - (5 x 1)*(1 x 5)*(5 x 5) --> (5 x 5) - (5 x 5)*(5 x 5) --> 5 x 5
 		this->error_ = this->error_ - K*H*this->error_;
 	}
+	else if (std::strcmp(sensorID.c_str(), "visual odometry") == 0) {
+		Matrix<double> R = this->error_.identity(2)*std::pow(this->delta_T, 2.0);
+
+		std::vector<double> offset; //CHANGE THIS
+		offset.resize(2, 0.0);
+		//add offset[1] for wheel distance on robot
+
+		std::vector<double> vis_odom_est = this->h_vis_odom(this->state_);
+
+		Matrix<double> H = this->H_vis_odom();
+		Matrix<double> H_trans = H.transpose();
+
+		//P*H' --> (5 x 5)*(5 x 2) --> (5 x 2)
+		//H*P*H' + R --> (2 x 5)*(5 x 5)*(5 x 2) + (2 x 2) --> (2 x 5)*(5 x 2) + (2 x 2) --> (2 x 2)
+		//P*H'*(H*P*H'+R)^-1 --> (5 x 2) * (2 x 2) --> (5 x 2)
+		Matrix<double> K = this->error_*H_trans*((H*this->error_*H_trans + R).inverse());
+		
+		//should be a (2 x 1)
+		std::vector<double> trans_zk = this->process_vis_odom(zk, offset, 3.14159265358979323846 / 4.0);
+		std::vector<double> innov;
+		innov.resize(trans_zk.size(), 0.0);
+		for (unsigned int i = 0; i < trans_zk.size(); i++) { innov[i] = trans_zk[i] - vis_odom_est[i]; }
+
+		//(5 x 2) * (2 x 1) --> (5 x 1)
+		std::vector<double> gainInnov = K*innov;
+		
+		for (unsigned int i = 0; i < gainInnov.size(); i++) { this->state_[i] = this->state_[i] + gainInnov[i]; }
+
+		//(5 x 5) - (5 x 2)*(2 x 5)*(5 x 5) --> (5 x 5) - (5 x 5) --> (5 x 5)
+		this->error_ = this->error_ - K*H*this->error_;
+	}
 }
 
 const void FiveStateEKF::update(const std::vector<double>& zk, std::ofstream& file, std::string sensorID) {
@@ -502,7 +557,38 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::ofstream& fi
 		//P-K*H*P --> (5 x 5) - (5 x 1)*(1 x 5)*(5 x 5) --> (5 x 5) - (5 x 5)*(5 x 5) --> 5 x 5
 		this->error_ = this->error_ - K*H*this->error_;
 	}
+	else if (std::strcmp(sensorID.c_str(), "visual odometry") == 0) {
+		Matrix<double> R = this->error_.identity(2)*std::pow(this->delta_T, 2.0);
 
+		std::vector<double> offset; //CHANGE THIS
+		offset.resize(2, 0.0);
+		//add offset[1] for wheel distance on robot
+		offset[1] = 0.4699; //its about 18.500000000000000000000000000''
+
+		std::vector<double> vis_odom_est = this->h_vis_odom(this->state_);
+
+		Matrix<double> H = this->H_vis_odom();
+		Matrix<double> H_trans = H.transpose();
+
+		//P*H' --> (5 x 5)*(5 x 2) --> (5 x 2)
+		//H*P*H' + R --> (2 x 5)*(5 x 5)*(5 x 2) + (2 x 2) --> (2 x 5)*(5 x 2) + (2 x 2) --> (2 x 2)
+		//P*H'*(H*P*H'+R)^-1 --> (5 x 2) * (2 x 2) --> (5 x 2)
+		Matrix<double> K = this->error_*H_trans*((H*this->error_*H_trans + R).inverse());
+
+		//should be a (2 x 1)
+		std::vector<double> trans_zk = this->process_vis_odom(zk, offset, 3.14159265358979323846 / 4.0);
+		std::vector<double> innov;
+		innov.resize(trans_zk.size(), 0.0);
+		for (unsigned int i = 0; i < trans_zk.size(); i++) { innov[i] = trans_zk[i] - vis_odom_est[i]; }
+
+		//(5 x 2) * (2 x 1) --> (5 x 1)
+		std::vector<double> gainInnov = K*innov;
+
+		for (unsigned int i = 0; i < gainInnov.size(); i++) { this->state_[i] = this->state_[i] + gainInnov[i]; }
+
+		//(5 x 5) - (5 x 2)*(2 x 5)*(5 x 5) --> (5 x 5) - (5 x 5) --> (5 x 5)
+		this->error_ = this->error_ - K*H*this->error_;
+	}
 }
 
 const void FiveStateEKF::update(const std::vector<double>& zk, std::string sensorID, const Matrix<double>& R) {
@@ -570,6 +656,37 @@ const void FiveStateEKF::update(const std::vector<double>& zk, std::string senso
 		for (unsigned int i = 0; i < this->state_.size(); i++) { this->state_[i] = this->state_[i] + rhs[i]; }
 
 		//P-K*H*P --> (5 x 5) - (5 x 1)*(1 x 5)*(5 x 5) --> (5 x 5) - (5 x 5)*(5 x 5) --> 5 x 5
+		this->error_ = this->error_ - K*H*this->error_;
+	}
+	else if (std::strcmp(sensorID.c_str(), "visual odometry") == 0) {
+		Matrix<double> R = this->error_.identity(2)*std::pow(this->delta_T, 2.0);
+
+		std::vector<double> offset; //CHANGE THIS
+		offset.resize(2, 0.0);
+		//add offset[1] for wheel distance on robot
+
+		std::vector<double> vis_odom_est = this->h_vis_odom(this->state_);
+
+		Matrix<double> H = this->H_vis_odom();
+		Matrix<double> H_trans = H.transpose();
+
+		//P*H' --> (5 x 5)*(5 x 2) --> (5 x 2)
+		//H*P*H' + R --> (2 x 5)*(5 x 5)*(5 x 2) + (2 x 2) --> (2 x 5)*(5 x 2) + (2 x 2) --> (2 x 2)
+		//P*H'*(H*P*H'+R)^-1 --> (5 x 2) * (2 x 2) --> (5 x 2)
+		Matrix<double> K = this->error_*H_trans*((H*this->error_*H_trans + R).inverse());
+
+		//should be a (2 x 1)
+		std::vector<double> trans_zk = this->process_vis_odom(zk, offset, 3.14159265358979323846 / 4.0);
+		std::vector<double> innov;
+		innov.resize(trans_zk.size(), 0.0);
+		for (unsigned int i = 0; i < trans_zk.size(); i++) { innov[i] = trans_zk[i] - vis_odom_est[i]; }
+
+		//(5 x 2) * (2 x 1) --> (5 x 1)
+		std::vector<double> gainInnov = K*innov;
+
+		for (unsigned int i = 0; i < gainInnov.size(); i++) { this->state_[i] = this->state_[i] + gainInnov[i]; }
+
+		//(5 x 5) - (5 x 2)*(2 x 5)*(5 x 5) --> (5 x 5) - (5 x 5) --> (5 x 5)
 		this->error_ = this->error_ - K*H*this->error_;
 	}
 }
